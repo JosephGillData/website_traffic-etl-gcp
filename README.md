@@ -2,7 +2,7 @@
 
 ### Introduction
 
-This repository automates an ETL (extract, transform, load) solution using Apache Airflow in which an email is sent containing the top 3 IP addresses with the most amount of traffic in the AM and PM each day.
+This repository automates an ETL (extract, transform, load) solution using Google Cloud in which an excel file is backed up with Google Cloud Storage and then inserted into a BigQuery database each day.
 
 ### Task
 
@@ -31,34 +31,27 @@ GITHUB_CLIENT_ID=
 
 ### The Dataset
 
-The data is stored in `data/traffic_data.csv`. This dataset contains information on the network traffic of a site on the 13th August 2021. Each row represents a network data point or record. There are over 5 columns and over 60,000 rows. Here's an explanation of each column:
-* **bf_date**: The date when the observation occurred.
-* **bf_time**: The time when the observation occurred.
-* **id**: A unique identifier for each observation.
-* **ip**: The IP address associated with each observation.
-* **gbps**: The traffic volume associated with each observation, measured in gigabits per second (Gbps). 
+The data is stored in `data/traffic_spreadsheet.xls`. This dataset contains information on the network traffic on the 23rd May 2021. Each row represents a network data point. There are 2 columns and 287 rows. Here's an explanation of each column:
+* **time**: The date and time when the observation occurred.
+* **traffic**: The traffic volume associated with each observation, probably measured in gigabits per second (Gbps). 
 
 ### ETL Process
 
-The ETL process is performed by a directed acyclical graph (DAG) created in the `task-3` Python script. The image below shows the tasks that form the DAG and how they intereact via task dependencies.
-
-![Alt Text](Dag.png)
+The ETL process is performed in the `task-1.py` Python script.
 
 #### Extract
 
-* `read_traffic_data`: loads data from `traffic_data.csv` and creates a pandas dataset.
+* The `traffic_spreadsheet.xls` spreadsheet is loaded and converted to a dataset using pandas. 
 
 #### Tranform
-* `filter_ips`: filters out 20% of the IP addresses with the lowest traffic.
-* `split_am_pm`: creates a branch for the AM and PM data to be analysed in parallel.
-* `filter_am`: filters the data to obtain observations created before midday.
-* `filter_pm`: filters the data to obtain observations after before midday.
+* The time column is reformated to a suitable format for Google Big Query.
+* I add a created_at column so we can track the date that each row was processed.
+* The dataset is saved as a `.csv` file.
 
 #### Load
-* `day_of_week`: triggers the `do_nothing_am` function if it's a weekday and triggers the `send_email_am` if it's a weekend.
-* `do_nothing_am`: does nothing.
-* `send_email_am`: obtains the three IP addresses with the most traffic before midday and sends an email containing them.
-* `send_email_pm`: obtains the three IP addresses with the most traffic after midday and sends an email containing them.
+
+* Create a backup of the original file in an S3 storage bucket in Google Cloud Storage (GCS). This ensures data redundancy and preservation of the source data.
+* Load the data from GCS into BigQuery.
 
 ### Author 
 
