@@ -44,6 +44,7 @@ The ETL process is performed in the `task-1.py` Python script.
 * The `traffic_spreadsheet.xls` spreadsheet is loaded and converted to a dataset using pandas. 
 
 #### Tranform
+
 * The time column is reformated to a suitable format for Google Big Query.
 * I add a created_at column so we can track the date that each row was processed.
 * The dataset is saved as a `.csv` file.
@@ -52,6 +53,19 @@ The ETL process is performed in the `task-1.py` Python script.
 
 * Create a backup of the original file in an S3 storage bucket in Google Cloud Storage (GCS). This ensures data redundancy and preservation of the source data.
 * Load the data from GCS into BigQuery.
+
+### Assumptions
+
+* I added a created_at column for each row, so that we can monitor when data was created in the BiqQuery database.
+* I appened the date and time to each traffic_spreadsheet file so that we have a backup of each day's data.
+* I binned the data per hour to show the daily trend.
+
+### Further Steps
+
+* Deploy the ETL process the the cloud, rather than being run locally.
+* Connect to a live data source, eather than loading a static .csv file. This is more useful.
+* Automate the `traffic_per_hour_query` to create the `traffic_per_hour` table.
+* Improve the styling of the Data Stutdio dashbaord.
 
 ### Author 
 
