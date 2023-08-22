@@ -1,4 +1,4 @@
-# `Sky Task 1`
+# Sky Task 1
 
 ### Introduction
 
