@@ -1,5 +1,76 @@
-canvas-radio-396115-06ab17b6af40.json
+# Environment and secrets - NEVER commit these
 .env
-/venv-task-1
+*.json
+!package.json
+!tsconfig.json
+
+# Virtual environments
+venv/
+venv-*/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Output files
+*.log
 output.log
-/data/traffic_spreadsheet.csv
+data/traffic_spreadsheet.csv
+data/traffic_data_*.csv
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Keep the original data file
+!data/traffic_spreadsheet.xls
