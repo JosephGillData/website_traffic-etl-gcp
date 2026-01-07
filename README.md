@@ -159,7 +159,6 @@ python -m etl run --truncate
 make install      # Install dependencies
 make install-dev  # Install dev dependencies
 make test         # Run tests
-make lint         # Run linter
 make run          # Run ETL
 make validate     # Validate config
 ```

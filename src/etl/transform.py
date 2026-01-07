@@ -384,7 +384,7 @@ def save_to_csv(df: pd.DataFrame, output_dir: Path, timestamp: str) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create filename with timestamp
-    filename = f"traffic_data_{timestamp}.csv"
+    filename = "traffic_data.csv"
     output_path = output_dir / filename
 
     # Write CSV

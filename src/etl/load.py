@@ -182,6 +182,17 @@ def upload_to_gcs(
     except Exception as e:
         raise LoadError(f"Failed to upload file to GCS: {e}") from e
 
+    # If we reach here, upload was successful
+    try:
+        if Path(local_path).name == "traffic_data.csv":
+            local_path.unlink()  # delete local file
+            logger.info(f"Deleted local file after upload: {local_path}")
+    except Exception as e:
+        # Don't fail the pipeline if cleanup fails
+        raise LoadError(
+            f"Upload succeeded but failed to delete local file '{local_path}': {e}"
+        ) from e
+
     # Return the GCS URI - this is what BigQuery will use to load the data
     gcs_uri = f"gs://{bucket_name}/{destination_blob_name}"
     logger.info(f"Successfully uploaded to {gcs_uri}")

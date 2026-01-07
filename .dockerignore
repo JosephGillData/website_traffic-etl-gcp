@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.git/
+.gitignore
+.env
+*.json
+*.pem
+*.key
+data/
+.requirements-dev.txt

@@ -30,11 +30,11 @@ install-dev: install  ## Install development dependencies
 test:  ## Run tests
 	$(PYTEST) tests/ -v
 
+test-debug:  ## Run tests with stdout visible
+	$(PYTEST) tests/ -v -s
+
 test-cov:  ## Run tests with coverage
 	$(PYTEST) tests/ -v --cov=src/etl --cov-report=term-missing
-
-lint:  ## Run linters (ruff)
-	$(VENV)/bin/ruff check src/ tests/
 
 format:  ## Format code (ruff)
 	$(VENV)/bin/ruff format src/ tests/
