@@ -88,20 +88,29 @@ class Config:
     All attributes correspond to environment variables:
     - gcp_project: GCP_PROJECT - Your Google Cloud project ID
     - gcs_bucket: GCS_BUCKET - Cloud Storage bucket for staging files
+    - gcs_source_path: GCS_SOURCE_PATH - Path to source XLS file within the bucket
     - bq_dataset: BQ_DATASET - BigQuery dataset name
     - bq_table: BQ_TABLE - BigQuery table name
-    - local_xls_path: LOCAL_XLS_PATH - Path to source Excel file
     - google_credentials_path: GOOGLE_APPLICATION_CREDENTIALS - Service account JSON
     - write_disposition: BQ_WRITE_DISPOSITION - "append" or "truncate"
     """
 
     gcp_project: str
     gcs_bucket: str
+    gcs_source_path: str
     bq_dataset: str
     bq_table: str
-    local_xls_path: Path
     google_credentials_path: Path
     write_disposition: Literal["append", "truncate"]
+
+    @property
+    def gcs_source_uri(self) -> str:
+        """
+        Full GCS URI for the source file.
+
+        Example: "gs://my-bucket/raw_data/traffic_spreadsheet.xls"
+        """
+        return f"gs://{self.gcs_bucket}/{self.gcs_source_path}"
 
     @property
     def bq_table_id(self) -> str:
@@ -227,9 +236,9 @@ def load_config(env_path: Path | None = None) -> Config:
     required_vars = [
         "GCP_PROJECT",  # e.g., "my-gcp-project-123"
         "GCS_BUCKET",  # e.g., "my-data-bucket"
+        "GCS_SOURCE_PATH",  # e.g., "raw_data/traffic_spreadsheet.xls"
         "BQ_DATASET",  # e.g., "analytics"
         "BQ_TABLE",  # e.g., "traffic_data"
-        "LOCAL_XLS_PATH",  # e.g., "data/traffic_spreadsheet.xls"
         "GOOGLE_APPLICATION_CREDENTIALS",  # e.g., "keys/service-account.json"
     ]
 
@@ -253,14 +262,8 @@ def load_config(env_path: Path | None = None) -> Config:
     # -------------------------------------------------------------------------
     # STEP 3: Validate file paths exist
     # -------------------------------------------------------------------------
-    # It's better to fail here with "file not found" than to fail later
-    # with a cryptic pandas or GCS error.
-
-    xls_path = Path(values["LOCAL_XLS_PATH"])
-    if not xls_path.exists():
-        raise ConfigError(
-            f"XLS file not found: {xls_path}\n" "Please check LOCAL_XLS_PATH in your configuration."
-        )
+    # We only validate local files (credentials). The GCS source path will be
+    # validated when we try to download it during extraction.
 
     credentials_path = Path(values["GOOGLE_APPLICATION_CREDENTIALS"])
     if not credentials_path.exists():
@@ -301,9 +304,9 @@ def load_config(env_path: Path | None = None) -> Config:
     return Config(
         gcp_project=values["GCP_PROJECT"],
         gcs_bucket=values["GCS_BUCKET"],
+        gcs_source_path=values["GCS_SOURCE_PATH"],
         bq_dataset=values["BQ_DATASET"],
         bq_table=values["BQ_TABLE"],
-        local_xls_path=xls_path,
         google_credentials_path=credentials_path,
         write_disposition=write_disposition,  # type: ignore[arg-type]
     )

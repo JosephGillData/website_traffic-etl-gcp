@@ -199,13 +199,21 @@ def upload_to_gcs(
     return gcs_uri
 
 
-def upload_backup_to_gcs(
-    local_path: Path,
+def copy_within_gcs(
     bucket_name: str,
-    timestamp: str,
+    source_blob_name: str,
+    destination_blob_name: str,
 ) -> str:
     """
-    Upload original source file as a backup to GCS.
+    Copy a file within the same GCS bucket.
+
+    WHY COPY INSTEAD OF DOWNLOAD+UPLOAD:
+    ------------------------------------
+    When source and destination are in the same bucket (or even different buckets),
+    GCS can copy objects server-side without downloading to the client. This is:
+    - Much faster (no network transfer to/from client)
+    - More efficient (no local disk I/O)
+    - Cheaper (no egress charges for intra-GCS copies)
 
     WHY KEEP BACKUPS:
     -----------------
@@ -218,22 +226,46 @@ def upload_backup_to_gcs(
     ensure we never overwrite previous backups.
 
     Args:
-        local_path: Path to local file (e.g., data/traffic_spreadsheet.xls)
         bucket_name: Name of the GCS bucket
-        timestamp: Timestamp string for unique filename
+        source_blob_name: Path to source file within the bucket
+        destination_blob_name: Path for the backup copy (e.g., "backups/original_20240101.xls")
 
     Returns:
-        GCS URI of the backup file
+        GCS URI of the copied file
+
+    Raises:
+        LoadError: If copy fails
     """
     logger = get_logger()
+    logger.info(f"Copying gs://{bucket_name}/{source_blob_name} to {destination_blob_name}")
 
-    # Create a unique backup path: backups/original_20240101_120000.xls
-    # local_path.suffix gets the file extension (e.g., ".xls")
-    backup_blob_name = f"backups/original_{timestamp}{local_path.suffix}"
-    logger.info(f"Uploading backup of original file: {backup_blob_name}")
+    try:
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
 
-    # Reuse the main upload function - DRY (Don't Repeat Yourself)
-    return upload_to_gcs(local_path, bucket_name, backup_blob_name)
+        # Get the source blob
+        source_blob = bucket.blob(source_blob_name)
+
+        # Copy to destination
+        # bucket.copy_blob() performs a server-side copy
+        bucket.copy_blob(source_blob, bucket, destination_blob_name)
+
+    except NotFound as e:
+        raise LoadError(
+            f"Source file not found: gs://{bucket_name}/{source_blob_name}\n"
+            "Cannot create backup of non-existent file."
+        ) from e
+    except Forbidden as e:
+        raise LoadError(
+            f"Permission denied copying file: {e}\n"
+            "Ensure the service account has 'Storage Object Admin' role."
+        ) from e
+    except Exception as e:
+        raise LoadError(f"Failed to copy file within GCS: {e}") from e
+
+    gcs_uri = f"gs://{bucket_name}/{destination_blob_name}"
+    logger.info(f"Successfully created backup at {gcs_uri}")
+    return gcs_uri
 
 
 # =============================================================================

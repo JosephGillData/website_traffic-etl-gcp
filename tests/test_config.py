@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest import mock
 
 import pytest
-
 from src.etl.config import ConfigError, load_config
 
 
@@ -17,10 +15,6 @@ class TestLoadConfig:
 
     def test_loads_valid_config(self, tmp_path: Path):
         """Should load valid configuration from environment."""
-        # Create a fake XLS file
-        xls_file = tmp_path / "test.xls"
-        xls_file.touch()
-
         # Create a fake credentials file
         creds_file = tmp_path / "creds.json"
         creds_file.write_text("{}")
@@ -31,9 +25,9 @@ class TestLoadConfig:
             f"""
 GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
+GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
 BQ_TABLE=test_table
-LOCAL_XLS_PATH={xls_file}
 GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 """
         )
@@ -44,9 +38,9 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 
         assert config.gcp_project == "test-project"
         assert config.gcs_bucket == "test-bucket"
+        assert config.gcs_source_path == "raw_data/traffic_spreadsheet.xls"
         assert config.bq_dataset == "test_dataset"
         assert config.bq_table == "test_table"
-        assert config.local_xls_path == xls_file
         assert config.google_credentials_path == creds_file
         assert config.write_disposition == "append"  # default
 
@@ -59,40 +53,16 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
             with pytest.raises(ConfigError, match="Missing required environment"):
                 load_config(env_file)
 
-    def test_raises_on_missing_xls_file(self, tmp_path: Path):
-        """Should raise ConfigError if XLS file doesn't exist."""
-        creds_file = tmp_path / "creds.json"
-        creds_file.write_text("{}")
-
-        env_file = tmp_path / ".env"
-        env_file.write_text(
-            f"""
-GCP_PROJECT=test-project
-GCS_BUCKET=test-bucket
-BQ_DATASET=test_dataset
-BQ_TABLE=test_table
-LOCAL_XLS_PATH=/nonexistent/file.xls
-GOOGLE_APPLICATION_CREDENTIALS={creds_file}
-"""
-        )
-
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigError, match="XLS file not found"):
-                load_config(env_file)
-
     def test_raises_on_missing_credentials_file(self, tmp_path: Path):
         """Should raise ConfigError if credentials file doesn't exist."""
-        xls_file = tmp_path / "test.xls"
-        xls_file.touch()
-
         env_file = tmp_path / ".env"
         env_file.write_text(
-            f"""
+            """
 GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
+GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
 BQ_TABLE=test_table
-LOCAL_XLS_PATH={xls_file}
 GOOGLE_APPLICATION_CREDENTIALS=/nonexistent/creds.json
 """
         )
@@ -103,8 +73,6 @@ GOOGLE_APPLICATION_CREDENTIALS=/nonexistent/creds.json
 
     def test_validates_write_disposition(self, tmp_path: Path):
         """Should raise ConfigError on invalid write disposition."""
-        xls_file = tmp_path / "test.xls"
-        xls_file.touch()
         creds_file = tmp_path / "creds.json"
         creds_file.write_text("{}")
 
@@ -113,9 +81,9 @@ GOOGLE_APPLICATION_CREDENTIALS=/nonexistent/creds.json
             f"""
 GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
+GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
 BQ_TABLE=test_table
-LOCAL_XLS_PATH={xls_file}
 GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 BQ_WRITE_DISPOSITION=invalid
 """
@@ -127,8 +95,6 @@ BQ_WRITE_DISPOSITION=invalid
 
     def test_bq_table_id_property(self, tmp_path: Path):
         """Should generate correct BigQuery table ID."""
-        xls_file = tmp_path / "test.xls"
-        xls_file.touch()
         creds_file = tmp_path / "creds.json"
         creds_file.write_text("{}")
 
@@ -137,9 +103,9 @@ BQ_WRITE_DISPOSITION=invalid
             f"""
 GCP_PROJECT=my-project
 GCS_BUCKET=test-bucket
+GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
 BQ_DATASET=my_dataset
 BQ_TABLE=my_table
-LOCAL_XLS_PATH={xls_file}
 GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 """
         )
@@ -148,3 +114,25 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
             config = load_config(env_file)
 
         assert config.bq_table_id == "my-project.my_dataset.my_table"
+
+    def test_gcs_source_uri_property(self, tmp_path: Path):
+        """Should generate correct GCS source URI."""
+        creds_file = tmp_path / "creds.json"
+        creds_file.write_text("{}")
+
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            f"""
+GCP_PROJECT=my-project
+GCS_BUCKET=my-bucket
+GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
+BQ_DATASET=my_dataset
+BQ_TABLE=my_table
+GOOGLE_APPLICATION_CREDENTIALS={creds_file}
+"""
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            config = load_config(env_file)
+
+        assert config.gcs_source_uri == "gs://my-bucket/raw_data/traffic_spreadsheet.xls"

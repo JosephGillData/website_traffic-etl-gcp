@@ -51,11 +51,11 @@ from datetime import datetime, timezone
 # This works because this file is inside the `etl` package
 # .config means etl/config.py, .extract means etl/extract.py, etc.
 from .config import ConfigError, load_config
-from .extract import ExtractionError, extract_from_xls
+from .extract import ExtractionError, extract_from_gcs
 from .load import (
     LoadError,
+    copy_within_gcs,
     load_to_bigquery,
-    upload_backup_to_gcs,
     upload_to_gcs,
     verify_bigquery_load,
 )
@@ -94,8 +94,8 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
     ----------------
     ETL (Extract, Transform, Load) is a common data pipeline pattern:
 
-    1. EXTRACT: Get raw data from source (XLS file)
-       - Read the file, validate it has expected structure
+    1. EXTRACT: Get raw data from source (XLS file in GCS)
+       - Download from GCS, read the file, validate structure
        - Output: Raw pandas DataFrame
 
     2. TRANSFORM: Clean and reshape the data
@@ -103,8 +103,9 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
        - Output: Clean DataFrame ready for loading
 
     3. LOAD: Put data into destination (BigQuery via GCS)
-       - Upload to GCS (staging area)
-       - Load into BigQuery (final destination)
+       - Copy original to backups folder in GCS
+       - Upload processed CSV to GCS
+       - Load into BigQuery
        - Verify the load succeeded
 
     WHY THIS ORDER:
@@ -160,11 +161,11 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
     # -------------------------------------------------------------------------
     # EXTRACT PHASE
     # -------------------------------------------------------------------------
-    # Read raw data from the source XLS file.
+    # Download and read raw data from the source XLS file in GCS.
     # At this stage, we just want the data as-is, with minimal processing.
     try:
         logger.info("=== EXTRACT PHASE ===")
-        df = extract_from_xls(config.local_xls_path)
+        df = extract_from_gcs(config.gcs_bucket, config.gcs_source_path)
     except ExtractionError as e:
         logger.error(f"Extraction failed: {e}")
         return EXIT_EXTRACTION_ERROR
@@ -178,12 +179,13 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
         logger.info("=== TRANSFORM PHASE ===")
         df = transform(df)
 
-        # Save transformed data to local CSV
-        # This serves two purposes:
-        # 1. Local backup/audit trail of what was processed
-        # 2. Source file for GCS upload (BigQuery loads from GCS, not local)
-        output_dir = config.local_xls_path.parent
-        csv_path = save_to_csv(df, output_dir, run_timestamp)
+        # Save transformed data to a temporary CSV file
+        # This will be uploaded to GCS and then deleted
+        import tempfile
+        from pathlib import Path
+
+        temp_dir = Path(tempfile.gettempdir())
+        csv_path = save_to_csv(df, temp_dir, run_timestamp)
     except TransformationError as e:
         logger.error(f"Transformation failed: {e}")
         return EXIT_TRANSFORM_ERROR
@@ -191,18 +193,18 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
     # -------------------------------------------------------------------------
     # LOAD PHASE
     # -------------------------------------------------------------------------
-    # Upload to GCS and load into BigQuery.
-    # We upload both the original (backup) and processed (for loading) files.
+    # Copy backup within GCS, upload processed CSV, and load into BigQuery.
     try:
         logger.info("=== LOAD PHASE ===")
 
-        # Upload backup of original XLS file to GCS
+        # Copy original XLS file to backups folder within GCS
         # This preserves the source data as it was when we processed it
         # Useful for auditing, debugging, or reprocessing later
-        upload_backup_to_gcs(
-            config.local_xls_path,
+        backup_blob_name = f"backups/original_{run_timestamp}.xls"
+        copy_within_gcs(
             config.gcs_bucket,
-            run_timestamp,
+            config.gcs_source_path,
+            backup_blob_name,
         )
 
         # Upload the processed CSV to GCS
@@ -256,9 +258,9 @@ def validate_config() -> int:
         logger.info("Configuration is valid:")
         logger.info(f"  GCP Project: {config.gcp_project}")
         logger.info(f"  GCS Bucket: {config.gcs_bucket}")
+        logger.info(f"  GCS Source: {config.gcs_source_uri}")
         logger.info(f"  BigQuery Dataset: {config.bq_dataset}")
         logger.info(f"  BigQuery Table: {config.bq_table}")
-        logger.info(f"  XLS Path: {config.local_xls_path}")
         logger.info(f"  Credentials: {config.google_credentials_path}")
         logger.info(f"  Write Disposition: {config.write_disposition}")
         return EXIT_SUCCESS
