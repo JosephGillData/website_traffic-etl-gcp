@@ -16,10 +16,13 @@ This pipeline:
 git clone <repo-url>
 cd sky-task-1
 
-# Create virtual environment and install dependencies
+# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies and the ETL package (editable mode)
 pip install -r requirements.txt
+pip install -e .
 
 # Copy and configure environment variables
 cp .env.example .env
