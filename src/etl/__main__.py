@@ -108,12 +108,6 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
        - Load into BigQuery
        - Verify the load succeeded
 
-    WHY THIS ORDER:
-    ---------------
-    - Extract first: Can't transform data we don't have
-    - Transform second: Clean data before storing it (garbage in = garbage out)
-    - Load last: Only store validated, clean data
-
     Args:
         verbose: Enable DEBUG-level logging for troubleshooting
         truncate: If True, replace all data in BigQuery table (WRITE_TRUNCATE)

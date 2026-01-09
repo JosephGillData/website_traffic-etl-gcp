@@ -191,7 +191,8 @@ def _parse_gcs_uri(uri: str) -> tuple[str, str]:
 
     if not match:
         raise ConfigError(
-            f"Invalid GCS URI format: {uri}\n" "Expected format: gs://bucket-name/path/to/file.xls"
+            f"Invalid GCS URI format: {uri}\n"
+            "Expected format: gs://bucket-name/path/to/file.xls"
         )
 
     bucket_name = match.group(1)
@@ -262,7 +263,6 @@ def load_config(env_path: Path | None = None) -> Config:
     errors: list[str] = []
 
     # Required environment variables
-    # NOTE: GOOGLE_APPLICATION_CREDENTIALS is NOT required - we use ADC
     required_vars = [
         "GCP_PROJECT",  # e.g., "my-gcp-project-123"
         "GCS_BUCKET",  # e.g., "my-data-bucket"
@@ -310,7 +310,8 @@ def load_config(env_path: Path | None = None) -> Config:
     write_disposition = _get_optional_env("BQ_WRITE_DISPOSITION", "append").lower()
     if write_disposition not in ("append", "truncate"):
         raise ConfigError(
-            f"Invalid BQ_WRITE_DISPOSITION: {write_disposition}\n" "Must be 'append' or 'truncate'."
+            f"Invalid BQ_WRITE_DISPOSITION: {write_disposition}\n"
+            "Must be 'append' or 'truncate'."
         )
 
     # -------------------------------------------------------------------------

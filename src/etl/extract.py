@@ -142,7 +142,8 @@ def download_from_gcs(bucket_name: str, source_blob_path: str) -> Path:
             )
     except NotFound as e:
         raise ExtractionError(
-            f"GCS bucket not found: {bucket_name}\n" "Please check the GCS_BUCKET configuration."
+            f"GCS bucket not found: {bucket_name}\n"
+            "Please check the GCS_BUCKET configuration."
         ) from e
     except Forbidden as e:
         raise ExtractionError(
@@ -271,89 +272,4 @@ def _read_excel_file(file_path: Path) -> pd.DataFrame:
     if row_count == 0:
         raise ExtractionError("Excel file contains no data rows")
 
-    return df
-
-
-def extract_from_xls(file_path: Path) -> pd.DataFrame:
-    """
-    Extract data from an XLS file.
-
-    This function reads an Excel file and returns its contents as a DataFrame.
-    It performs basic validation to ensure the file is usable before returning.
-
-    VALIDATION PHILOSOPHY:
-    ----------------------
-    We validate here (rather than in Transform) because:
-    - If the file is wrong, we want to fail immediately
-    - It's clearer to report "missing 'time' column" than "can't parse time column"
-    - Transform can assume it has the data it needs
-
-    COLUMN VALIDATION:
-    ------------------
-    We check that 'time' and 'traffic' columns exist (case-insensitive).
-    This is a basic structural validation - we're not checking data types
-    or values yet. Transform will do more detailed validation.
-
-    Args:
-        file_path: Path to the XLS file to read
-
-    Returns:
-        DataFrame containing the raw data from the Excel file.
-        Column names and data types are preserved as-is from the source.
-
-    Raises:
-        ExtractionError: If file cannot be read or is structurally invalid.
-                         Error messages are designed to help users fix the issue.
-    """
-    logger = get_logger()
-    logger.info(f"Extracting data from {file_path}")
-
-    # -------------------------------------------------------------------------
-    # Read Excel File
-    # -------------------------------------------------------------------------
-    # pd.read_excel() is pandas' function for reading Excel files.
-    #
-    # engine="xlrd": Specifies the library to use for reading.
-    #   - xlrd: For .xls files (old Excel format)
-    #   - openpyxl: For .xlsx files (modern Excel format)
-    #
-    # The engine choice matters because .xls and .xlsx are completely different
-    # file formats under the hood, despite both being "Excel files".
-    try:
-        df = pd.read_excel(file_path, engine="xlrd")
-    except FileNotFoundError as err:
-        # Explicit handling for missing file - common user error
-        raise ExtractionError(f"XLS file not found: {file_path}") from err
-    except Exception as err:
-        # Catch-all for other errors (corrupted file, wrong format, etc.)
-        raise ExtractionError(f"Failed to read XLS file: {err}") from err
-
-    # -------------------------------------------------------------------------
-    # Validate Column Structure
-    # -------------------------------------------------------------------------
-    # We expect the file to have 'time' and 'traffic' columns.
-    # Using case-insensitive comparison because column names might be
-    # "Time", "TIME", "time", etc. depending on how the Excel was created.
-    expected_columns = {"time", "traffic"}
-    actual_columns = set(df.columns.str.lower())
-
-    # issubset() checks if all expected columns are present
-    # We use subset (not equality) to allow extra columns - they'll be ignored
-    if not expected_columns.issubset(actual_columns):
-        missing = expected_columns - actual_columns
-        raise ExtractionError(
-            f"Missing required columns: {missing}. " f"Found columns: {list(df.columns)}"
-        )
-
-    # -------------------------------------------------------------------------
-    # Validate Data Exists
-    # -------------------------------------------------------------------------
-    row_count = len(df)
-    logger.info(f"Extracted {row_count} rows from XLS file")
-
-    # An empty file is technically valid Excel, but useless for ETL
-    if row_count == 0:
-        raise ExtractionError("XLS file contains no data rows")
-
-    # Return the raw DataFrame - Transform will clean it up
     return df

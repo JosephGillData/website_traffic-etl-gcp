@@ -459,3 +459,33 @@ MIT
 Joseph Gill
 - [Website](https://joegilldata.com)
 - [LinkedIn](https://www.linkedin.com/in/joseph-gill-726b52182/)
+
+
+
+## Running the code
+
+Clone the repo and setup etc.
+
+### Google Cloud Setup
+
+Create a new project in Google Cloud
+
+#### Cloud Storage Setup
+
+* Create a new Cloud Storage bucket called website_analysis.
+* Upload the traffic_spreahsheet.xls file.
+
+
+#### BigQuery Setup
+
+Create a new BigQuery dataset called website_analysis
+Within that dataset, create a table called website_traffic with columns:
+* time (TIMESTAMP - REQUIRED)
+* traffic (FLOAT - REQUIRED)
+* created_at (TIMESTAMP - REQUIRED)
+
+pip install the module in an editable way (reacts to live changes)
+pip install -e .
+
+Run the ETL pipeline
+python -m etl
