@@ -116,13 +116,14 @@ def download_from_gcs(bucket_name: str, source_blob_path: str) -> Path:
     # -------------------------------------------------------------------------
     # Create GCS Client
     # -------------------------------------------------------------------------
-    # Uses GOOGLE_APPLICATION_CREDENTIALS automatically (set in config.py)
+    # Uses Application Default Credentials (ADC) automatically
     try:
         client = storage.Client()
     except Exception as e:
         raise ExtractionError(
             f"Failed to create GCS client: {e}\n"
-            "Check that GOOGLE_APPLICATION_CREDENTIALS is set correctly."
+            "Authentication failed. For local dev: run 'gcloud auth application-default login' "
+            "or set GOOGLE_APPLICATION_CREDENTIALS. For Cloud Run: ensure a service account is attached."
         ) from e
 
     # -------------------------------------------------------------------------

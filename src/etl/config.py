@@ -8,56 +8,68 @@ environment, not be hardcoded in the source code.
 
 WHY USE ENVIRONMENT VARIABLES:
 ------------------------------
-1. Security: Secrets (like credentials paths) stay out of git
+1. Security: Secrets stay out of git
 2. Flexibility: Different values for dev/staging/production
 3. Simplicity: No need to modify code to change settings
-4. Standard: Works with Docker, Kubernetes, CI/CD, cron, etc.
+4. Standard: Works with Docker, Kubernetes, Cloud Run, etc.
 
 HOW CONFIGURATION FLOWS:
 ------------------------
+LOCAL DEVELOPMENT:
 1. User creates a `.env` file with key=value pairs (see .env.example)
 2. python-dotenv reads `.env` and sets them as environment variables
 3. This module reads those environment variables via os.getenv()
-4. Values are validated and bundled into an immutable Config object
-5. Other modules receive Config and use its values
 
-GOOGLE CLOUD AUTHENTICATION:
-----------------------------
-Google Cloud client libraries (google-cloud-storage, google-cloud-bigquery)
-automatically look for credentials in this order:
+CLOUD RUN JOBS:
+1. Environment variables are set in the job configuration
+2. No .env file needed - Cloud Run provides the vars directly
+3. This module reads them the same way via os.getenv()
 
-1. GOOGLE_APPLICATION_CREDENTIALS environment variable (what we use)
+GOOGLE CLOUD AUTHENTICATION (ADC):
+----------------------------------
+This pipeline uses Application Default Credentials (ADC). The GCP client libraries
+(storage.Client(), bigquery.Client()) automatically discover credentials in this order:
+
+1. GOOGLE_APPLICATION_CREDENTIALS environment variable (local dev only)
    - Points to a JSON file containing service account key
-   - Most explicit and portable method
+   - Set this in .env for local development
 
-2. Application Default Credentials (ADC)
-   - `gcloud auth application-default login` sets these up
-   - Good for local development with your personal account
+2. gcloud CLI credentials
+   - Run `gcloud auth application-default login` for interactive local dev
 
-3. Compute Engine / Cloud Run metadata
+3. Attached service account (Cloud Run / GCE / GKE)
    - Automatic when running on GCP infrastructure
-   - No credentials file needed
+   - No credentials file needed - uses the attached service account identity
+   - This is the RECOMMENDED method for production
 
-We use method #1 (GOOGLE_APPLICATION_CREDENTIALS) because:
-- It's explicit: clear what credentials are being used
-- It's portable: works the same everywhere (local, CI, production)
-- It's auditable: you know which service account is being used
+IMPORTANT - CLOUD RUN JOBS:
+---------------------------
+- Do NOT bake JSON key files into container images
+- Do NOT set GOOGLE_APPLICATION_CREDENTIALS in Cloud Run
+- Instead, attach a service account to the Cloud Run Job
+- The GCP client libraries will automatically use the attached identity via ADC
 
-The JSON file contains:
-- project_id: Which GCP project the service account belongs to
-- private_key: The actual cryptographic key for authentication
-- client_email: The service account's email (e.g., name@project.iam.gserviceaccount.com)
+LOCAL DEVELOPMENT OPTIONS:
+--------------------------
+Option A (Recommended): Use gcloud CLI
+  gcloud auth application-default login
+
+Option B: Use service account JSON key
+  Set GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json in your .env file
+  Never commit the key file to git!
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 # python-dotenv reads .env files and sets environment variables
 # This is the bridge between your .env file and os.getenv()
+# In Cloud Run, this does nothing (no .env file), which is fine.
 from dotenv import load_dotenv
 
 # =============================================================================
@@ -87,11 +99,10 @@ class Config:
     -----------
     All attributes correspond to environment variables:
     - gcp_project: GCP_PROJECT - Your Google Cloud project ID
-    - gcs_bucket: GCS_BUCKET - Cloud Storage bucket for staging files
-    - gcs_source_path: GCS_SOURCE_PATH - Path to source XLS file within the bucket
+    - gcs_bucket: GCS_BUCKET - Cloud Storage bucket (extracted from INPUT_GCS_URI)
+    - gcs_source_path: Path within bucket (extracted from INPUT_GCS_URI)
     - bq_dataset: BQ_DATASET - BigQuery dataset name
     - bq_table: BQ_TABLE - BigQuery table name
-    - google_credentials_path: GOOGLE_APPLICATION_CREDENTIALS - Service account JSON
     - write_disposition: BQ_WRITE_DISPOSITION - "append" or "truncate"
     """
 
@@ -100,11 +111,10 @@ class Config:
     gcs_source_path: str
     bq_dataset: str
     bq_table: str
-    google_credentials_path: Path
     write_disposition: Literal["append", "truncate"]
 
     @property
-    def gcs_source_uri(self) -> str:
+    def input_gcs_uri(self) -> str:
         """
         Full GCS URI for the source file.
 
@@ -153,22 +163,6 @@ class ConfigError(Exception):
 # =============================================================================
 
 
-def _get_required_env(key: str) -> str:
-    """
-    Get a required environment variable or raise ConfigError.
-
-    The underscore prefix (_) is a Python convention meaning "private" -
-    this function is only meant to be used within this module.
-    """
-    value = os.getenv(key)
-    if not value:
-        raise ConfigError(
-            f"Missing required environment variable: {key}\n"
-            f"Please set {key} in your .env file or environment."
-        )
-    return value
-
-
 def _get_optional_env(key: str, default: str) -> str:
     """
     Get an optional environment variable with a default value.
@@ -176,6 +170,34 @@ def _get_optional_env(key: str, default: str) -> str:
     Use this for settings that have sensible defaults.
     """
     return os.getenv(key, default)
+
+
+def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+    """
+    Parse a GCS URI into bucket name and blob path.
+
+    Args:
+        uri: Full GCS URI (e.g., "gs://my-bucket/path/to/file.xls")
+
+    Returns:
+        Tuple of (bucket_name, blob_path)
+
+    Raises:
+        ConfigError: If URI format is invalid
+    """
+    # Pattern: gs://bucket-name/path/to/object
+    pattern = r"^gs://([^/]+)/(.+)$"
+    match = re.match(pattern, uri)
+
+    if not match:
+        raise ConfigError(
+            f"Invalid GCS URI format: {uri}\n" "Expected format: gs://bucket-name/path/to/file.xls"
+        )
+
+    bucket_name = match.group(1)
+    blob_path = match.group(2)
+
+    return bucket_name, blob_path
 
 
 # =============================================================================
@@ -188,11 +210,17 @@ def load_config(env_path: Path | None = None) -> Config:
     Load and validate configuration from environment variables.
 
     This is the main entry point for configuration. It:
-    1. Reads the .env file (if it exists) into environment variables
+    1. Reads the .env file (if it exists) for local development
     2. Validates all required variables are present
-    3. Validates file paths exist
-    4. Sets up Google Cloud authentication
-    5. Returns an immutable Config object
+    3. Parses INPUT_GCS_URI into bucket and path
+    4. Returns an immutable Config object
+
+    NOTE ON AUTHENTICATION:
+    -----------------------
+    This function does NOT set up Google Cloud authentication.
+    Authentication is handled automatically by the GCP client libraries:
+    - In Cloud Run: Uses the attached service account (ADC)
+    - Locally: Uses GOOGLE_APPLICATION_CREDENTIALS or `gcloud auth application-default login`
 
     FAIL-FAST PHILOSOPHY:
     ---------------------
@@ -201,7 +229,7 @@ def load_config(env_path: Path | None = None) -> Config:
     fail 10 minutes into a run with a confusing error.
 
     Args:
-        env_path: Optional explicit path to .env file.
+        env_path: Optional explicit path to .env file (for testing).
                   If not provided, python-dotenv searches for .env in
                   the current directory and parent directories.
 
@@ -213,13 +241,13 @@ def load_config(env_path: Path | None = None) -> Config:
                      The error message explains exactly what's wrong.
     """
     # -------------------------------------------------------------------------
-    # STEP 1: Load .env file
+    # STEP 1: Load .env file (for local development only)
     # -------------------------------------------------------------------------
     # load_dotenv() reads the .env file and calls os.environ[key] = value
     # for each line. After this, os.getenv(key) returns those values.
     #
-    # If .env doesn't exist, this silently does nothing (no error).
-    # Environment variables set by other means (shell, Docker, etc.) still work.
+    # In Cloud Run, there's no .env file, so this does nothing - the env vars
+    # are already set by the Cloud Run Job configuration.
     if env_path:
         load_dotenv(env_path)
     else:
@@ -233,13 +261,14 @@ def load_config(env_path: Path | None = None) -> Config:
     # running again, fixing another, etc.
     errors: list[str] = []
 
+    # Required environment variables
+    # NOTE: GOOGLE_APPLICATION_CREDENTIALS is NOT required - we use ADC
     required_vars = [
         "GCP_PROJECT",  # e.g., "my-gcp-project-123"
         "GCS_BUCKET",  # e.g., "my-data-bucket"
-        "GCS_SOURCE_PATH",  # e.g., "raw_data/traffic_spreadsheet.xls"
+        "INPUT_GCS_URI",  # e.g., "gs://bucket/raw_data/traffic_spreadsheet.xls"
         "BQ_DATASET",  # e.g., "analytics"
         "BQ_TABLE",  # e.g., "traffic_data"
-        "GOOGLE_APPLICATION_CREDENTIALS",  # e.g., "keys/service-account.json"
     ]
 
     values: dict[str, str] = {}
@@ -255,41 +284,27 @@ def load_config(env_path: Path | None = None) -> Config:
         raise ConfigError(
             "Missing required environment variables:\n"
             + "\n".join(errors)
-            + "\n\nPlease set these in your .env file or environment.\n"
+            + "\n\nFor local development: Set these in your .env file.\n"
+            "For Cloud Run: Set these in the Job configuration.\n"
             "See .env.example for reference."
         )
 
     # -------------------------------------------------------------------------
-    # STEP 3: Validate file paths exist
+    # STEP 3: Parse INPUT_GCS_URI
     # -------------------------------------------------------------------------
-    # We only validate local files (credentials). The GCS source path will be
-    # validated when we try to download it during extraction.
+    # Extract bucket name and blob path from the full GCS URI
+    bucket_from_uri, blob_path = _parse_gcs_uri(values["INPUT_GCS_URI"])
 
-    credentials_path = Path(values["GOOGLE_APPLICATION_CREDENTIALS"])
-    if not credentials_path.exists():
+    # Validate that GCS_BUCKET matches the bucket in INPUT_GCS_URI
+    if values["GCS_BUCKET"] != bucket_from_uri:
         raise ConfigError(
-            f"Google credentials file not found: {credentials_path}\n"
-            "Please check GOOGLE_APPLICATION_CREDENTIALS in your configuration.\n"
-            "See README.md for instructions on creating a service account."
+            f"GCS_BUCKET ({values['GCS_BUCKET']}) does not match bucket in "
+            f"INPUT_GCS_URI ({bucket_from_uri}).\n"
+            "These should be the same bucket."
         )
 
     # -------------------------------------------------------------------------
-    # STEP 4: Set up Google Cloud authentication
-    # -------------------------------------------------------------------------
-    # The Google Cloud client libraries (google-cloud-storage, google-cloud-bigquery)
-    # automatically read GOOGLE_APPLICATION_CREDENTIALS from the environment.
-    #
-    # We set it here with the absolute path to ensure it works regardless of
-    # what directory the script runs from.
-    #
-    # IMPORTANT: This is the "magic" that makes GCS and BigQuery work without
-    # explicitly passing credentials to each client. When you do:
-    #     client = storage.Client()
-    # The client automatically uses the credentials from this env var.
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credentials_path.absolute())
-
-    # -------------------------------------------------------------------------
-    # STEP 5: Handle optional configuration
+    # STEP 4: Handle optional configuration
     # -------------------------------------------------------------------------
     # write_disposition controls whether BigQuery appends to or replaces data
     write_disposition = _get_optional_env("BQ_WRITE_DISPOSITION", "append").lower()
@@ -299,14 +314,13 @@ def load_config(env_path: Path | None = None) -> Config:
         )
 
     # -------------------------------------------------------------------------
-    # STEP 6: Return immutable config object
+    # STEP 5: Return immutable config object
     # -------------------------------------------------------------------------
     return Config(
         gcp_project=values["GCP_PROJECT"],
         gcs_bucket=values["GCS_BUCKET"],
-        gcs_source_path=values["GCS_SOURCE_PATH"],
+        gcs_source_path=blob_path,
         bq_dataset=values["BQ_DATASET"],
         bq_table=values["BQ_TABLE"],
-        google_credentials_path=credentials_path,
         write_disposition=write_disposition,  # type: ignore[arg-type]
     )

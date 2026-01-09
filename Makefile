@@ -1,16 +1,11 @@
-.PHONY: help install install-dev test lint format run validate clean
+.PHONY: help install install-dev test test-debug test-cov lint format run validate clean
 
 PYTHON := python3
 VENV := venv
-PIP := $(VENV)/bin/pip
-PYTEST := $(VENV)/bin/pytest
 PYTHON_VENV := $(VENV)/bin/python
 
-# Windows compatibility
+# Windows compatibility - use python -m to avoid bin vs Scripts issues
 ifeq ($(OS),Windows_NT)
-	VENV := venv
-	PIP := $(VENV)/Scripts/pip
-	PYTEST := $(VENV)/Scripts/pytest
 	PYTHON_VENV := $(VENV)/Scripts/python
 endif
 
@@ -21,24 +16,28 @@ venv:  ## Create virtual environment
 	$(PYTHON) -m venv $(VENV)
 
 install: venv  ## Install production dependencies
-	$(PIP) install --upgrade pip
-	$(PIP) install -r requirements.txt
+	$(PYTHON_VENV) -m pip install --upgrade pip
+	$(PYTHON_VENV) -m pip install -r requirements.txt
+	$(PYTHON_VENV) -m pip install -e .
 
 install-dev: install  ## Install development dependencies
-	$(PIP) install -r requirements-dev.txt
+	$(PYTHON_VENV) -m pip install -r requirements-dev.txt
 
 test:  ## Run tests
-	$(PYTEST) tests/ -v
+	$(PYTHON_VENV) -m pytest tests/ -v
 
-test-debug:  ## Run tests with stdout visible
-	$(PYTEST) tests/ -v -s
+test-debug:  ## Run tests with stdout visible (useful for debugging)
+	$(PYTHON_VENV) -m pytest tests/ -v -s
 
 test-cov:  ## Run tests with coverage
-	$(PYTEST) tests/ -v --cov=src/etl --cov-report=term-missing
+	$(PYTHON_VENV) -m pytest tests/ -v --cov=src/etl --cov-report=term-missing
+
+lint:  ## Lint code (ruff check)
+	$(PYTHON_VENV) -m ruff check src/ tests/
 
 format:  ## Format code (ruff)
-	$(VENV)/bin/ruff format src/ tests/
-	$(VENV)/bin/ruff check --fix src/ tests/
+	$(PYTHON_VENV) -m ruff format src/ tests/
+	$(PYTHON_VENV) -m ruff check --fix src/ tests/
 
 run:  ## Run ETL pipeline
 	$(PYTHON_VENV) -m etl run

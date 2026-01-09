@@ -258,11 +258,12 @@ def validate_config() -> int:
         logger.info("Configuration is valid:")
         logger.info(f"  GCP Project: {config.gcp_project}")
         logger.info(f"  GCS Bucket: {config.gcs_bucket}")
-        logger.info(f"  GCS Source: {config.gcs_source_uri}")
+        logger.info(f"  GCS Source: {config.input_gcs_uri}")
         logger.info(f"  BigQuery Dataset: {config.bq_dataset}")
         logger.info(f"  BigQuery Table: {config.bq_table}")
-        logger.info(f"  Credentials: {config.google_credentials_path}")
+        logger.info(f"  BigQuery Table ID: {config.bq_table_id}")
         logger.info(f"  Write Disposition: {config.write_disposition}")
+        logger.info("  Auth: Using Application Default Credentials (ADC)")
         return EXIT_SUCCESS
     except ConfigError as e:
         logger.error(f"Configuration invalid: {e}")

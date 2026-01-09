@@ -84,14 +84,33 @@ Create a `.env` file (copy from `.env.example`):
 # Required
 GCP_PROJECT=your-gcp-project-id
 GCS_BUCKET=your-gcs-bucket-name
+INPUT_GCS_URI=gs://your-gcs-bucket-name/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=your_bigquery_dataset
 BQ_TABLE=traffic_data
-LOCAL_XLS_PATH=data/traffic_spreadsheet.xls
+
+# Optional - for local development only (not needed for Cloud Run)
 GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
 
 # Optional
 BQ_WRITE_DISPOSITION=append  # or "truncate"
 ```
+
+### Authentication (Application Default Credentials)
+
+This pipeline uses **Application Default Credentials (ADC)** for authentication.
+The GCP client libraries automatically discover credentials in this order:
+
+| Environment | How Authentication Works |
+|------------|-------------------------|
+| **Cloud Run Jobs** | Automatic - uses attached service account identity. **No JSON key files needed.** |
+| **Local (gcloud CLI)** | Run `gcloud auth application-default login` |
+| **Local (JSON key)** | Set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json` in `.env` |
+
+**Important for Cloud Run:**
+- Do NOT set `GOOGLE_APPLICATION_CREDENTIALS` in Cloud Run
+- Do NOT bake JSON key files into container images
+- Instead, attach a service account to the Cloud Run Job
+- The `.dockerignore` excludes `.env` and `*.json` to prevent accidental credential leaks
 
 ### GCP Service Account Setup
 
@@ -102,20 +121,21 @@ BQ_WRITE_DISPOSITION=append  # or "truncate"
    - Description: "Service account for traffic ETL pipeline"
 
 3. Grant the following roles:
-   - `Storage Object Admin` (for GCS uploads)
+   - `Storage Object Admin` (for GCS uploads and downloads)
    - `BigQuery Data Editor` (for loading data)
    - `BigQuery Job User` (for running load jobs)
 
-4. Create and download a JSON key:
+4. **For Local Development Only** - Create a JSON key:
    - Click on the service account
    - Go to **Keys** tab
    - **Add Key** > **Create new key** > **JSON**
    - Save the file securely (never commit to git!)
+   - Set the path in your `.env`:
+     ```
+     GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json
+     ```
 
-5. Set the path in your `.env`:
-   ```
-   GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json
-   ```
+5. **For Cloud Run** - Attach the service account to the job (no JSON key needed)
 
 ### Create GCS Bucket
 
@@ -215,23 +235,26 @@ Full example with absolute paths:
 
 For production, consider **Cloud Scheduler + Cloud Run Jobs**:
 
-1. **Containerize** the ETL:
-   ```dockerfile
-   FROM python:3.11-slim
-   WORKDIR /app
-   COPY requirements.txt .
-   RUN pip install -r requirements.txt
-   COPY src/ src/
-   COPY data/ data/
-   CMD ["python", "-m", "etl", "run"]
+1. **Build and push the container image**:
+   ```bash
+   # Build the image
+   docker build -t gcr.io/YOUR_PROJECT/etl-pipeline .
+
+   # Push to Container Registry
+   docker push gcr.io/YOUR_PROJECT/etl-pipeline
    ```
 
-2. **Deploy to Cloud Run Jobs**:
+2. **Deploy to Cloud Run Jobs** (with service account for ADC):
    ```bash
    gcloud run jobs create etl-pipeline \
      --image gcr.io/YOUR_PROJECT/etl-pipeline \
-     --set-env-vars GCP_PROJECT=...,GCS_BUCKET=...,BQ_DATASET=...,BQ_TABLE=...
+     --region us-central1 \
+     --service-account etl-pipeline@YOUR_PROJECT.iam.gserviceaccount.com \
+     --set-env-vars "GCP_PROJECT=YOUR_PROJECT,GCS_BUCKET=your-bucket,INPUT_GCS_URI=gs://your-bucket/raw_data/traffic_spreadsheet.xls,BQ_DATASET=your_dataset,BQ_TABLE=traffic_data"
    ```
+
+   **Important:** The `--service-account` flag attaches the service account identity.
+   The pipeline uses ADC to authenticate automatically - no JSON key files needed!
 
 3. **Schedule with Cloud Scheduler**:
    ```bash
@@ -241,6 +264,15 @@ For production, consider **Cloud Scheduler + Cloud Run Jobs**:
      --http-method=POST \
      --oauth-service-account-email=SERVICE_ACCOUNT@PROJECT.iam.gserviceaccount.com
    ```
+
+### Temporary Files in Cloud Run
+
+The pipeline uses Python's `tempfile` module for intermediate files:
+- Downloaded XLS files from GCS are stored in temp directory
+- Processed CSV files are created in temp directory before upload
+- Cloud Run provides `/tmp` as a writable temp directory (in-memory)
+- All temp files are automatically cleaned up after use
+- If cleanup fails, a warning is logged but the pipeline continues
 
 **Alternative: Cloud Functions**
 - Trigger: Cloud Scheduler via Pub/Sub
@@ -329,23 +361,27 @@ ORDER BY hour
 2. Delete and recreate the table in BigQuery Console
 3. Ensure you're not mixing data from different sources
 
-### Missing Credentials
+### Authentication Failed
 
-**Symptom:** `ConfigError: Google credentials file not found`
+**Symptom:** `Failed to create GCS client` or `Authentication failed`
+
+**Solutions for Local Development:**
+1. Run `gcloud auth application-default login` (recommended)
+2. OR download a JSON key from GCP Console > IAM > Service Accounts and set `GOOGLE_APPLICATION_CREDENTIALS` in `.env`
+
+**Solutions for Cloud Run:**
+1. Ensure the Cloud Run Job has a service account attached (`--service-account` flag)
+2. Verify the service account has required IAM roles
+3. Do NOT set `GOOGLE_APPLICATION_CREDENTIALS` - let ADC handle it
+
+### Source File Not Found in GCS
+
+**Symptom:** `Source file not found in GCS: gs://bucket/path`
 
 **Solutions:**
-1. Download key from GCP Console > IAM > Service Accounts
-2. Set absolute path in `GOOGLE_APPLICATION_CREDENTIALS`
-3. Verify file permissions are readable
-
-### XLS File Not Found
-
-**Symptom:** `ConfigError: XLS file not found`
-
-**Solutions:**
-1. Verify `LOCAL_XLS_PATH` in `.env`
-2. Use absolute path if relative path fails
-3. Check file exists: `ls -la data/traffic_spreadsheet.xls`
+1. Verify `INPUT_GCS_URI` in `.env` points to correct GCS path
+2. Upload the source XLS file to GCS: `gsutil cp data/traffic_spreadsheet.xls gs://your-bucket/raw_data/`
+3. Check file exists: `gsutil ls gs://your-bucket/raw_data/`
 
 ## Development
 

@@ -15,20 +15,15 @@ class TestLoadConfig:
 
     def test_loads_valid_config(self, tmp_path: Path):
         """Should load valid configuration from environment."""
-        # Create a fake credentials file
-        creds_file = tmp_path / "creds.json"
-        creds_file.write_text("{}")
-
-        # Create .env file
+        # Create .env file with INPUT_GCS_URI
         env_file = tmp_path / ".env"
         env_file.write_text(
-            f"""
+            """
 GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
-GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
+INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
 BQ_TABLE=test_table
-GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 """
         )
 
@@ -41,7 +36,6 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
         assert config.gcs_source_path == "raw_data/traffic_spreadsheet.xls"
         assert config.bq_dataset == "test_dataset"
         assert config.bq_table == "test_table"
-        assert config.google_credentials_path == creds_file
         assert config.write_disposition == "append"  # default
 
     def test_raises_on_missing_env_vars(self, tmp_path: Path):
@@ -53,38 +47,16 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
             with pytest.raises(ConfigError, match="Missing required environment"):
                 load_config(env_file)
 
-    def test_raises_on_missing_credentials_file(self, tmp_path: Path):
-        """Should raise ConfigError if credentials file doesn't exist."""
+    def test_validates_write_disposition(self, tmp_path: Path):
+        """Should raise ConfigError on invalid write disposition."""
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
 GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
-GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
+INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
 BQ_TABLE=test_table
-GOOGLE_APPLICATION_CREDENTIALS=/nonexistent/creds.json
-"""
-        )
-
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigError, match="credentials file not found"):
-                load_config(env_file)
-
-    def test_validates_write_disposition(self, tmp_path: Path):
-        """Should raise ConfigError on invalid write disposition."""
-        creds_file = tmp_path / "creds.json"
-        creds_file.write_text("{}")
-
-        env_file = tmp_path / ".env"
-        env_file.write_text(
-            f"""
-GCP_PROJECT=test-project
-GCS_BUCKET=test-bucket
-GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
-BQ_DATASET=test_dataset
-BQ_TABLE=test_table
-GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 BQ_WRITE_DISPOSITION=invalid
 """
         )
@@ -93,20 +65,50 @@ BQ_WRITE_DISPOSITION=invalid
             with pytest.raises(ConfigError, match="Invalid BQ_WRITE_DISPOSITION"):
                 load_config(env_file)
 
-    def test_bq_table_id_property(self, tmp_path: Path):
-        """Should generate correct BigQuery table ID."""
-        creds_file = tmp_path / "creds.json"
-        creds_file.write_text("{}")
-
+    def test_validates_bucket_mismatch(self, tmp_path: Path):
+        """Should raise ConfigError if GCS_BUCKET doesn't match INPUT_GCS_URI bucket."""
         env_file = tmp_path / ".env"
         env_file.write_text(
-            f"""
-GCP_PROJECT=my-project
+            """
+GCP_PROJECT=test-project
+GCS_BUCKET=different-bucket
+INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
+BQ_DATASET=test_dataset
+BQ_TABLE=test_table
+"""
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ConfigError, match="does not match bucket"):
+                load_config(env_file)
+
+    def test_validates_invalid_gcs_uri(self, tmp_path: Path):
+        """Should raise ConfigError on invalid GCS URI format."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            """
+GCP_PROJECT=test-project
 GCS_BUCKET=test-bucket
-GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
+INPUT_GCS_URI=invalid-uri-format
+BQ_DATASET=test_dataset
+BQ_TABLE=test_table
+"""
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(ConfigError, match="Invalid GCS URI format"):
+                load_config(env_file)
+
+    def test_bq_table_id_property(self, tmp_path: Path):
+        """Should generate correct BigQuery table ID."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            """
+GCP_PROJECT=my-project
+GCS_BUCKET=my-bucket
+INPUT_GCS_URI=gs://my-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=my_dataset
 BQ_TABLE=my_table
-GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 """
         )
 
@@ -115,24 +117,20 @@ GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 
         assert config.bq_table_id == "my-project.my_dataset.my_table"
 
-    def test_gcs_source_uri_property(self, tmp_path: Path):
+    def test_input_gcs_uri_property(self, tmp_path: Path):
         """Should generate correct GCS source URI."""
-        creds_file = tmp_path / "creds.json"
-        creds_file.write_text("{}")
-
         env_file = tmp_path / ".env"
         env_file.write_text(
-            f"""
+            """
 GCP_PROJECT=my-project
 GCS_BUCKET=my-bucket
-GCS_SOURCE_PATH=raw_data/traffic_spreadsheet.xls
+INPUT_GCS_URI=gs://my-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=my_dataset
 BQ_TABLE=my_table
-GOOGLE_APPLICATION_CREDENTIALS={creds_file}
 """
         )
 
         with mock.patch.dict(os.environ, {}, clear=True):
             config = load_config(env_file)
 
-        assert config.gcs_source_uri == "gs://my-bucket/raw_data/traffic_spreadsheet.xls"
+        assert config.input_gcs_uri == "gs://my-bucket/raw_data/traffic_spreadsheet.xls"

@@ -20,16 +20,17 @@ Local CSV → GCS Upload → BigQuery Load Job → BigQuery Table
                 ↓
         gs://bucket/path/file.csv  (intermediate staging)
 
-GOOGLE CLOUD AUTHENTICATION:
-----------------------------
-Both storage.Client() and bigquery.Client() automatically use the credentials
-from the GOOGLE_APPLICATION_CREDENTIALS environment variable, which was set
-in config.py when we loaded configuration.
+GOOGLE CLOUD AUTHENTICATION (ADC):
+----------------------------------
+Both storage.Client() and bigquery.Client() use Application Default Credentials.
+No explicit credentials are passed - the GCP client libraries automatically discover
+credentials in this order:
 
-No explicit credentials are passed because:
-1. The GCP client libraries check for GOOGLE_APPLICATION_CREDENTIALS automatically
-2. This is called "Application Default Credentials" (ADC) pattern
-3. It keeps credentials handling centralized in config.py
+1. GOOGLE_APPLICATION_CREDENTIALS environment variable (local dev)
+2. gcloud CLI credentials (`gcloud auth application-default login`)
+3. Attached service account (Cloud Run / GCE / GKE) - RECOMMENDED for production
+
+For Cloud Run Jobs, attach a service account to the job. No JSON key files needed.
 
 REQUIRED IAM PERMISSIONS:
 -------------------------
@@ -137,7 +138,8 @@ def upload_to_gcs(
     except Exception as e:
         raise LoadError(
             f"Failed to create GCS client: {e}\n"
-            "Check that GOOGLE_APPLICATION_CREDENTIALS is set correctly."
+            "Authentication failed. For local dev: run 'gcloud auth application-default login' "
+            "or set GOOGLE_APPLICATION_CREDENTIALS. For Cloud Run: ensure a service account is attached."
         ) from e
 
     # -------------------------------------------------------------------------
@@ -182,20 +184,18 @@ def upload_to_gcs(
     except Exception as e:
         raise LoadError(f"Failed to upload file to GCS: {e}") from e
 
-    # If we reach here, upload was successful
-    try:
-        if Path(local_path).name == "traffic_data.csv":
-            local_path.unlink()  # delete local file
-            logger.info(f"Deleted local file after upload: {local_path}")
-    except Exception as e:
-        # Don't fail the pipeline if cleanup fails
-        raise LoadError(
-            f"Upload succeeded but failed to delete local file '{local_path}': {e}"
-        ) from e
-
     # Return the GCS URI - this is what BigQuery will use to load the data
     gcs_uri = f"gs://{bucket_name}/{destination_blob_name}"
     logger.info(f"Successfully uploaded to {gcs_uri}")
+
+    # Clean up local file after successful upload
+    # Cleanup failures should NOT fail the pipeline - just log a warning
+    try:
+        local_path.unlink()
+        logger.info(f"Deleted local temp file after upload: {local_path}")
+    except Exception as e:
+        logger.warning(f"Could not delete temp file {local_path}: {e}")
+
     return gcs_uri
 
 
@@ -336,7 +336,8 @@ def load_to_bigquery(
     except Exception as e:
         raise LoadError(
             f"Failed to create BigQuery client: {e}\n"
-            "Check that GOOGLE_APPLICATION_CREDENTIALS is set correctly."
+            "Authentication failed. For local dev: run 'gcloud auth application-default login' "
+            "or set GOOGLE_APPLICATION_CREDENTIALS. For Cloud Run: ensure a service account is attached."
         ) from e
 
     # -------------------------------------------------------------------------

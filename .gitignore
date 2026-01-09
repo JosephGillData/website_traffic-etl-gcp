@@ -74,3 +74,6 @@ data/traffic_data_*.csv
 
 # Keep the original data file
 !data/traffic_spreadsheet.xls
+
+env.cloudrun
+Dockerfile

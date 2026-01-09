@@ -12,3 +12,4 @@ htmlcov/
 *.key
 data/
 .requirements-dev.txt
+env.cloudrun
