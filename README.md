@@ -34,18 +34,18 @@ This mirrors a common production pattern:
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Google Cloud Platform                        │
 │                                                                     │
-│  ┌─────────────────┐    ┌─────────────┐    ┌─────────────────────┐ │
-│  │   GCS Bucket    │    │  Local ETL  │    │      BigQuery       │ │
-│  │                 │    │             │    │                     │ │
-│  │  raw_data/      │───▶│  Extract    │    │  website_traffic    │ │
-│  │    └─ .xls      │    │     ↓       │    │    └─ traffic_data  │ │
-│  │                 │    │  Transform  │    │                     │ │
-│  │  processed/     │◀───│     ↓       │───▶│  time | traffic |   │ │
-│  │    └─ .csv      │    │  Load       │    │  created_at         │ │
-│  │                 │    │             │    │                     │ │
-│  │  backups/       │    └─────────────┘    └─────────────────────┘ │
-│  │    └─ .xls      │                                               │
-│  └─────────────────┘                                               │
+│  ┌─────────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
+│  │   GCS Bucket    │    │  Local ETL  │    │      BigQuery       │  │
+│  │                 │    │             │    │                     │  │
+│  │  raw_data/      │--->│  Extract    │    │  website_traffic    │  │
+│  │    └─ .xls      │    │     ↓       │    │    └─ traffic_data  │  │
+│  │                 │    │  Transform  │    │                     │  │
+│  │  processed/     │<---│     ↓       │--->│  time | traffic |   │  │
+│  │    └─ .csv      │    │  Load       │    │  created_at         │  │
+│  │                 │    │             │    │                     │  │
+│  │  backups/       │    └─────────────┘    └─────────────────────┘  │
+│  │    └─ .xls      │                                                │
+│  └─────────────────┘                                                │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
