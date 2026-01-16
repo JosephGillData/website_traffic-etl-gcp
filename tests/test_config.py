@@ -19,7 +19,7 @@ class TestLoadConfig:
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=test-project
+PROJECT_ID=test-project
 GCS_BUCKET=test-bucket
 INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
@@ -31,7 +31,7 @@ BQ_TABLE=test_table
         with mock.patch.dict(os.environ, {}, clear=True):
             config = load_config(env_file)
 
-        assert config.gcp_project == "test-project"
+        assert config.PROJECT_ID == "test-project"
         assert config.gcs_bucket == "test-bucket"
         assert config.gcs_source_path == "raw_data/traffic_spreadsheet.xls"
         assert config.bq_dataset == "test_dataset"
@@ -41,7 +41,7 @@ BQ_TABLE=test_table
     def test_raises_on_missing_env_vars(self, tmp_path: Path):
         """Should raise ConfigError if required vars are missing."""
         env_file = tmp_path / ".env"
-        env_file.write_text("GCP_PROJECT=test-project")
+        env_file.write_text("PROJECT_ID=test-project")
 
         with mock.patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ConfigError, match="Missing required environment"):
@@ -52,7 +52,7 @@ BQ_TABLE=test_table
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=test-project
+PROJECT_ID=test-project
 GCS_BUCKET=test-bucket
 INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
@@ -70,7 +70,7 @@ BQ_WRITE_DISPOSITION=invalid
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=test-project
+PROJECT_ID=test-project
 GCS_BUCKET=different-bucket
 INPUT_GCS_URI=gs://test-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=test_dataset
@@ -87,7 +87,7 @@ BQ_TABLE=test_table
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=test-project
+PROJECT_ID=test-project
 GCS_BUCKET=test-bucket
 INPUT_GCS_URI=invalid-uri-format
 BQ_DATASET=test_dataset
@@ -104,7 +104,7 @@ BQ_TABLE=test_table
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=my-project
+PROJECT_ID=my-project
 GCS_BUCKET=my-bucket
 INPUT_GCS_URI=gs://my-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=my_dataset
@@ -122,7 +122,7 @@ BQ_TABLE=my_table
         env_file = tmp_path / ".env"
         env_file.write_text(
             """
-GCP_PROJECT=my-project
+PROJECT_ID=my-project
 GCS_BUCKET=my-bucket
 INPUT_GCS_URI=gs://my-bucket/raw_data/traffic_spreadsheet.xls
 BQ_DATASET=my_dataset

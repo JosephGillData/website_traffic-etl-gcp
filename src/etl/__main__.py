@@ -144,7 +144,7 @@ def run_etl(verbose: bool = False, truncate: bool = False) -> int:
             config = replace(config, write_disposition="truncate")
 
         logger.info(
-            f"Configuration loaded: project={config.gcp_project}, bucket={config.gcs_bucket}"
+            f"Configuration loaded: project={config.PROJECT_ID}, bucket={config.gcs_bucket}"
         )
     except ConfigError as e:
         # Configuration errors are usually user-fixable (missing env vars, wrong paths)
@@ -250,7 +250,7 @@ def validate_config() -> int:
 
         # Print all config values so the user can verify they're correct
         logger.info("Configuration is valid:")
-        logger.info(f"  GCP Project: {config.gcp_project}")
+        logger.info(f"  GCP Project: {config.PROJECT_ID}")
         logger.info(f"  GCS Bucket: {config.gcs_bucket}")
         logger.info(f"  GCS Source: {config.input_gcs_uri}")
         logger.info(f"  BigQuery Dataset: {config.bq_dataset}")

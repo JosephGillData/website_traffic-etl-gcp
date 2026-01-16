@@ -332,7 +332,7 @@ def load_to_bigquery(
     # Like storage.Client(), this uses GOOGLE_APPLICATION_CREDENTIALS automatically
     # We explicitly pass project= to ensure we're working in the right project
     try:
-        client = bigquery.Client(project=config.gcp_project)
+        client = bigquery.Client(project=config.PROJECT_ID)
     except Exception as e:
         raise LoadError(
             f"Failed to create BigQuery client: {e}\n"
@@ -397,7 +397,7 @@ def load_to_bigquery(
         if "dataset" in error_msg.lower():
             raise LoadError(
                 f"BigQuery dataset not found: {config.bq_dataset}\n"
-                f"Create it with: bq mk --dataset {config.gcp_project}:{config.bq_dataset}"
+                f"Create it with: bq mk --dataset {config.PROJECT_ID}:{config.bq_dataset}"
             ) from e
         raise LoadError(
             f"BigQuery resource not found: {e}\n"
@@ -457,7 +457,7 @@ def verify_bigquery_load(config: Config, expected_rows: int) -> bool:
     logger = get_logger()
 
     try:
-        client = bigquery.Client(project=config.gcp_project)
+        client = bigquery.Client(project=config.PROJECT_ID)
 
         # Run a simple COUNT(*) query to get total rows in the table
         # The backticks around the table ID are required for BigQuery SQL

@@ -98,7 +98,7 @@ class Config:
     ATTRIBUTES:
     -----------
     All attributes correspond to environment variables:
-    - gcp_project: GCP_PROJECT - Your Google Cloud project ID
+    - PROJECT_ID: PROJECT_ID - Your Google Cloud project ID
     - gcs_bucket: GCS_BUCKET - Cloud Storage bucket (extracted from INPUT_GCS_URI)
     - gcs_source_path: Path within bucket (extracted from INPUT_GCS_URI)
     - bq_dataset: BQ_DATASET - BigQuery dataset name
@@ -106,7 +106,7 @@ class Config:
     - write_disposition: BQ_WRITE_DISPOSITION - "append" or "truncate"
     """
 
-    gcp_project: str
+    PROJECT_ID: str
     gcs_bucket: str
     gcs_source_path: str
     bq_dataset: str
@@ -134,7 +134,7 @@ class Config:
 
         Example: "my-project.analytics_dataset.traffic_data"
         """
-        return f"{self.gcp_project}.{self.bq_dataset}.{self.bq_table}"
+        return f"{self.PROJECT_ID}.{self.bq_dataset}.{self.bq_table}"
 
 
 # =============================================================================
@@ -264,7 +264,7 @@ def load_config(env_path: Path | None = None) -> Config:
 
     # Required environment variables
     required_vars = [
-        "GCP_PROJECT",  # e.g., "my-gcp-project-123"
+        "PROJECT_ID",  # e.g., "my-gcp-project-123"
         "GCS_BUCKET",  # e.g., "my-data-bucket"
         "INPUT_GCS_URI",  # e.g., "gs://bucket/raw_data/traffic_spreadsheet.xls"
         "BQ_DATASET",  # e.g., "analytics"
@@ -318,7 +318,7 @@ def load_config(env_path: Path | None = None) -> Config:
     # STEP 5: Return immutable config object
     # -------------------------------------------------------------------------
     return Config(
-        gcp_project=values["GCP_PROJECT"],
+        PROJECT_ID=values["PROJECT_ID"],
         gcs_bucket=values["GCS_BUCKET"],
         gcs_source_path=blob_path,
         bq_dataset=values["BQ_DATASET"],
