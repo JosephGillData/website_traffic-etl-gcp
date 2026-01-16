@@ -1,55 +1,6 @@
-"""
-Extract Module - Download and Read Source Data from GCS
-========================================================
+"""Extract: Download XLS from GCS and read into DataFrame."""
 
-This module handles the "Extract" phase of the ETL pipeline.
-Its job is simple: download data from GCS and return it as-is.
-
-THE EXTRACT PHASE:
-------------------
-- Download raw data from GCS (the source XLS file lives in the bucket)
-- Read the Excel file into memory
-- Perform minimal validation (does it have expected columns?)
-- Return data in a format other modules can work with (pandas DataFrame)
-
-DATA FLOW:
-----------
-GCS (raw_data/traffic_spreadsheet.xls) → Download to temp file → Read into DataFrame
-
-WHY DOWNLOAD TO TEMP FILE:
---------------------------
-pandas.read_excel() can read from file paths but not directly from GCS.
-We download to a temporary file, read it, then clean up.
-This is a common pattern when working with cloud storage.
-
-WHAT EXTRACT DOES NOT DO:
--------------------------
-- Clean or modify data (that's Transform's job)
-- Upload or store data (that's Load's job)
-- Apply business logic
-
-This separation of concerns makes the code easier to test and maintain.
-Each module has one clear responsibility.
-
-WHY PANDAS DATAFRAME:
----------------------
-pandas DataFrame is the standard in-memory data structure for tabular data in Python.
-It's like an Excel spreadsheet in code - rows and columns with named headers.
-Most data manipulation libraries expect DataFrames, including:
-- Data transformation (pandas itself)
-- Machine learning (scikit-learn, XGBoost)
-- Visualization (matplotlib, seaborn)
-- Database loading (SQLAlchemy, BigQuery client)
-
-EXCEL FILE FORMATS:
--------------------
-- .xls: Old Excel format (before 2007), requires 'xlrd' library
-- .xlsx: Modern Excel format, requires 'openpyxl' library
-- pandas.read_excel() handles both with the appropriate engine
-"""
-
-from __future__ import annotations
-
+import logging
 import tempfile
 from pathlib import Path
 
@@ -57,219 +8,73 @@ import pandas as pd
 from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import storage
 
-from .logging_config import get_logger
-
-# =============================================================================
-# CUSTOM EXCEPTION
-# =============================================================================
+logger = logging.getLogger("etl")
 
 
 class ExtractionError(Exception):
-    """
-    Raised when data extraction fails.
-
-    Examples of extraction failures:
-    - File doesn't exist
-    - File is corrupted or wrong format
-    - File is missing required columns
-    - File is empty
-
-    Using a custom exception allows callers to handle extraction errors
-    differently from other types of errors (like configuration errors).
-    """
-
-
-# =============================================================================
-# GCS DOWNLOAD FUNCTION
-# =============================================================================
+    """Raised when data extraction fails."""
 
 
 def download_from_gcs(bucket_name: str, source_blob_path: str) -> Path:
-    """
-    Download a file from Google Cloud Storage to a temporary local file.
-
-    WHY TEMP FILES:
-    ---------------
-    We can't read Excel files directly from GCS - pandas needs a local file path.
-    Using Python's tempfile module ensures:
-    - Unique filenames (no collisions)
-    - Proper cleanup on system restart
-    - Cross-platform compatibility
-
-    The caller is responsible for cleaning up the temp file after use.
-
-    Args:
-        bucket_name: Name of the GCS bucket (without gs:// prefix)
-        source_blob_path: Path to the file within the bucket
-                          (e.g., "raw_data/traffic_spreadsheet.xls")
-
-    Returns:
-        Path to the downloaded temporary file
-
-    Raises:
-        ExtractionError: If download fails (file not found, permission denied, etc.)
-    """
-    logger = get_logger()
+    """Download a file from GCS to a temporary local file."""
     gcs_uri = f"gs://{bucket_name}/{source_blob_path}"
-    logger.info(f"Downloading source file from {gcs_uri}")
+    logger.info(f"Downloading {gcs_uri}")
 
-    # -------------------------------------------------------------------------
-    # Create GCS Client
-    # -------------------------------------------------------------------------
-    # Uses Application Default Credentials (ADC) automatically
     try:
         client = storage.Client()
     except Exception as e:
         raise ExtractionError(
             f"Failed to create GCS client: {e}\n"
-            "Authentication failed. For local dev: run 'gcloud auth application-default login' "
-            "or set GOOGLE_APPLICATION_CREDENTIALS. For Cloud Run: ensure a service account is attached."
+            "Run 'gcloud auth application-default login' to authenticate."
         ) from e
 
-    # -------------------------------------------------------------------------
-    # Get Bucket and Blob References
-    # -------------------------------------------------------------------------
     try:
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(source_blob_path)
 
-        # Check if the blob exists before trying to download
         if not blob.exists():
-            raise ExtractionError(
-                f"Source file not found in GCS: {gcs_uri}\n"
-                f"Please check that the file exists at: {source_blob_path}\n"
-                "You can verify with: gsutil ls gs://{bucket_name}/{source_blob_path}"
-            )
+            raise ExtractionError(f"File not found: {gcs_uri}")
     except NotFound as e:
-        raise ExtractionError(
-            f"GCS bucket not found: {bucket_name}\n"
-            "Please check the GCS_BUCKET configuration."
-        ) from e
+        raise ExtractionError(f"Bucket not found: {bucket_name}") from e
     except Forbidden as e:
-        raise ExtractionError(
-            f"Permission denied accessing GCS: {e}\n"
-            "Ensure the service account has 'Storage Object Viewer' role."
-        ) from e
+        raise ExtractionError(f"Permission denied: {e}") from e
 
-    # -------------------------------------------------------------------------
-    # Download to Temporary File
-    # -------------------------------------------------------------------------
-    # Get the file extension from the source path to preserve it
-    # This is important because pandas uses the extension to determine the file type
-    source_extension = Path(source_blob_path).suffix  # e.g., ".xls"
+    source_extension = Path(source_blob_path).suffix
+    temp_file = tempfile.NamedTemporaryFile(suffix=source_extension, delete=False)
+    temp_path = Path(temp_file.name)
+    temp_file.close()
 
     try:
-        # Create a temporary file with the same extension as the source
-        # delete=False means we manage deletion ourselves (after reading)
-        temp_file = tempfile.NamedTemporaryFile(
-            suffix=source_extension,
-            delete=False,
-        )
-        temp_path = Path(temp_file.name)
-        temp_file.close()  # Close so blob.download_to_filename can write to it
-
-        # Download the blob to the temp file
         blob.download_to_filename(str(temp_path))
-        logger.info(f"Downloaded {gcs_uri} to temporary file")
-
+        logger.info(f"Downloaded to {temp_path}")
         return temp_path
-
-    except Forbidden as e:
-        raise ExtractionError(
-            f"Permission denied downloading from GCS: {e}\n"
-            "Ensure the service account has 'Storage Object Viewer' role."
-        ) from e
     except Exception as e:
-        raise ExtractionError(f"Failed to download file from GCS: {e}") from e
-
-
-# =============================================================================
-# MAIN EXTRACTION FUNCTION
-# =============================================================================
+        raise ExtractionError(f"Download failed: {e}") from e
 
 
 def extract_from_gcs(bucket_name: str, source_blob_path: str) -> pd.DataFrame:
-    """
-    Extract data from an XLS file stored in GCS.
-
-    This is the main extraction function. It:
-    1. Downloads the file from GCS to a temporary location
-    2. Reads the Excel file into a DataFrame
-    3. Validates the data structure
-    4. Cleans up the temporary file
-    5. Returns the DataFrame
-
-    Args:
-        bucket_name: Name of the GCS bucket
-        source_blob_path: Path to the XLS file within the bucket
-
-    Returns:
-        DataFrame containing the raw data from the Excel file.
-
-    Raises:
-        ExtractionError: If download or parsing fails.
-    """
-    logger = get_logger()
-    logger.info("=== Starting extraction from GCS ===")
-
-    # Download the file from GCS
+    """Extract data from XLS file in GCS. Returns DataFrame."""
     temp_path = download_from_gcs(bucket_name, source_blob_path)
 
     try:
-        # Read the Excel file
-        df = _read_excel_file(temp_path)
-        return df
+        df = pd.read_excel(temp_path, engine="xlrd")
+    except Exception as e:
+        raise ExtractionError(f"Failed to read Excel file: {e}") from e
     finally:
-        # Always clean up the temp file, even if reading fails
         try:
             temp_path.unlink()
-            logger.info("Cleaned up temporary file")
-        except Exception as e:
-            logger.warning(f"Could not delete temp file {temp_path}: {e}")
+        except Exception:
+            pass
 
+    # Validate required columns
+    expected = {"time", "traffic"}
+    actual = set(df.columns.str.lower())
+    if not expected.issubset(actual):
+        missing = expected - actual
+        raise ExtractionError(f"Missing columns: {missing}. Found: {list(df.columns)}")
 
-def _read_excel_file(file_path: Path) -> pd.DataFrame:
-    """
-    Read and validate an Excel file.
+    if len(df) == 0:
+        raise ExtractionError("Excel file contains no data")
 
-    This is a helper function that handles the actual file reading.
-    Separated from download logic for clarity and testability.
-
-    Args:
-        file_path: Path to the local Excel file
-
-    Returns:
-        DataFrame with validated structure
-
-    Raises:
-        ExtractionError: If file cannot be read or is structurally invalid
-    """
-    logger = get_logger()
-    logger.info(f"Reading Excel file: {file_path}")
-
-    # Read the Excel file
-    try:
-        df = pd.read_excel(file_path, engine="xlrd")
-    except FileNotFoundError as err:
-        raise ExtractionError(f"XLS file not found: {file_path}") from err
-    except Exception as err:
-        raise ExtractionError(f"Failed to read XLS file: {err}") from err
-
-    # Validate column structure
-    expected_columns = {"time", "traffic"}
-    actual_columns = set(df.columns.str.lower())
-
-    if not expected_columns.issubset(actual_columns):
-        missing = expected_columns - actual_columns
-        raise ExtractionError(
-            f"Missing required columns: {missing}. Found columns: {list(df.columns)}"
-        )
-
-    # Validate data exists
-    row_count = len(df)
-    logger.info(f"Extracted {row_count} rows from Excel file")
-
-    if row_count == 0:
-        raise ExtractionError("Excel file contains no data rows")
-
+    logger.info(f"Extracted {len(df)} rows")
     return df
